@@ -70,11 +70,11 @@ reg `INDEX usp; //Undo stack pointer
 reg `WORD ir; //Instruction Register
 
 reg wait1; //used to stall in stage 1
-reg `WORD pc0, pc1, pc2; //Pipeline PC value
+reg `WORD pct, pc0, pc1, pc2; //Pipeline PC value
 reg `WORD sext0, sext1; //Pipeline sign extended
 reg `WORD ir0, ir1, ir2; //Pipeline IR
-reg `WORD d1, d2; //Pipeline destination register
-reg `WORD s1, s2; //Pipeline source
+reg `WORD d0, d1, d2; //Pipeline destination register
+reg `WORD s0, s1, s2; //Pipeline source
 
 wire pendjb1, pendjb2; //Check for jump/branch
 wire jb; //Is it a jump or branch?
@@ -89,11 +89,11 @@ always @(reset) begin
   pc <= 0;
   usp <= 0;
   targetpc <= 0; landpc <= 0; lc <= 0;
-  pc0 <= 0; pc1 <= 0; pc2 <= 0;
+  pct<=0; pc0 <= 0; pc1 <= 0; pc2 <= 0;
   sext0 <= 0; sext1 <= 10;
   ir0 <= `NOP; ir1 <= `NOP; ir2 <= `NOP;
-  d1 <= 0; d2 <= 0;
-  s1 <= 0; s2 <= 0;
+  d0 <= 0; d1 <= 0; d2 <= 0;
+  s0s1 <= 0; s2 <= 0;
   $readmemh0(regfile);
   $readmemh1(datamem);
   $readmemh2(instmem);
@@ -177,48 +177,45 @@ assign datadep = ((ir0 `DEST == ir1 `DEST) && (~pendjb1) && (ir0 != `NOP) && (ir
 
 //stage 0: instruction fetch
 always @(posedge clk) begin
-  pc0 = (jb ? targetpc : pc);
+  pct = (jb ? targetpc : pc);
   if(wait1) begin
     // blocked by stage 1: should not have a jump
-    pc <=pc0;
+    pc <=pct;
   end else begin
     //not blocked by stage 1:
-    ir = instmem[pc0];
+    ir = instmem[pct];
     landpc <= lc; 
     lc <= pc;
-    ir0 <= `NOP;
-    if ((ir `OP != `OPjerr) || (ir `OP != `OPland) || (ir `OP != `OPcom) || (ir `OP != `OPfail)) 
+    d0<= regfile[ir `DEST];
+    s0 <= regfile[ir `SRC]
+    ir0 <= ir;
+    if ((ir `OP == `OPjerr) || (ir `OP == `OPland) || (ir `OP == `OPcom)) 
     begin
-        if (regscr(ir)) begin
-          s1 <= regfile[ir `SRC]; targetpc <= regfile[ir `SRC];
-        end else if (imfour(ir)) begin
-          s1 <= sexi4; targetpc <= pc + sexi4;
-        end else if (atscr(ir)) begin
-          s1 <= datamem[ regfile[ir `SRC] ]; targetpc <= datamem[ regfile[ir `SRC] ];
-        end else if (atimfour)
-          s1 <= ustack[ usp - (ir `SRC)]; targetpc <= ustack[ usp - (ir `SRC)];
-        end
-        d1<= regfile[ir `DEST];
-        ir0 <= ir;
+      ir0 <= `NOP;        
     end
-    pc <= pc0 + 1;
+    pc <= pct + 1;
   end
-  pc1 <= pc0;
+  pc1 <= pct;
 end
 
 //stage 1: register read
 always @(posedge clk) begin
-  if ((ir0 != `NOP) && setsdest(ir1) && ((usesdest(ir0) && (ir0 `DEST == ir1 `DEST)) || (usesscr(ir0) && (ir0 `SRC == ir1 `DEST)))) 
+  if(ir0 == `NOP)
   begin
-    // stall waiting for register value
-    wait1 = 1;
-    ir1 <= `NOP;
+  ir1 <= `NOP;
   end else begin
-    // all good, get operands (even if not needed)
-    wait1 = 0;
-    d2 <=  regfile[ir0 `DEST];
-    s2 <=  regfile[ir0 `SRC];
-    ir2 <= ir1;
+    if ((ir0 != `NOP) && setsdest(ir1) && ((usesdest(ir0) && (ir0 `DEST == ir1 `DEST) && (ir0 `DEST == ir2 `DEST)) || (usesscr(ir0) && (ir0 `SRC == ir1 `DEST) && (ir0 `SRC == ir2 `DEST)))) 
+    begin
+      // stall waiting for register value
+      wait1 = 1;
+      ir1 <= `NOP;
+    end else begin
+      // all good, get operands (even if not needed)
+      wait1 = 0;
+      d1 <=  regfile[ir0 `DEST];
+      s1 <=  regfile[ir0 `SRC];
+      ir1 <= ir0;
+    end
   end
 end
 
